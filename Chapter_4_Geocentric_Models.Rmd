@@ -1,0 +1,842 @@
+---
+title: "Chapter 4 Geocentric Models"
+output: html_notebook
+---
+
+```{r}
+library(rethinking)
+```
+
+## 4.1 Why normal distributions are normal
+
+### 4.1.1 Normal by addition
+
+```{r 4.1}
+# Simulate the coin flip and step example
+# Any process htat adds together random values form teh same distribution
+# converges to a normal
+
+pos <- replicate(1000, sum(runif(16,-1,1)))
+plot(density(pos))
+```
+
+### 4.1.2 Normal by multiplication
+```{r 4.2}
+# Example: Growth rate by 12 genes that is multiplicative
+prod(1 + runif(12,0,0.1))
+```
+
+```{r 4.3}
+# Now get 10000 random products
+growth <- replicate(10000, prod(1 + runif(12, 0, 0.1)))
+dens(growth, norm.comp=TRUE)
+```
+
+```{r 4.4}
+# Compare big vs. small effects - small converges to normal better
+big <- replicate(10000, prod(1 + runif(12,0,0.5)))
+small <- replicate(10000, prod(1 + runif(12, 0, 0.01)))
+dens(big, norm.comp = TRUE)
+```
+
+```{r}
+dens(small, norm.comp=TRUE)
+```
+
+### 4.1.3 Normal by log-multiplication
+
+```{r 4.5}
+# Adding logs is equivalent to multiplying the original numbers
+log.big <- replicate(10000, log(prod(1 + runif(12,0,0.5))))
+dens(log.big, norm.comp = TRUE)
+```
+
+### 4.1.4 Using Gaussian distributions
+
+No code snippets
+
+## 4.2 A language for describing models
+
+### 4.2.1 Re-describing the globe tossing model
+
+Model description of globe-tossing model
+
+$$ W \sim \text{Binomial}(N, p)$$
+$$ p \sim \text{Uniform}(0,1) $$
+
+Where $W$ is the observed count of water, $N$ is the total number of tosses, and $p$ is the proportion of water on the globe.
+
+```{r 4.6}
+# Use R to approximate equation specified in overthinking box
+w <- 6; n <- 9;
+p_grid <- seq(from=0, to=1, length.out=100)
+posterior <- dbinom(w,n,p_grid)*dunif(p_grid,0,1)
+posterior <- posterior/sum(posterior)
+
+```
+
+## 4.3 Gaussian model of height
+
+### 4.3.1 The data
+
+```{r 4.7}
+# Load in data
+library(rethinking)
+data("Howell1")
+d <- Howell1
+```
+
+```{r 4.8}
+# Examine data features
+str(d)
+```
+
+```{r 4.9}
+# Examine data using rethinking precis summary function
+precis(d)
+```
+
+
+```{r 4.10}
+# Examine height data from dataframe
+d$height
+```
+
+```{r 4.11}
+# Filter to adults only
+d2 <- d[ d$age >= 18, ]
+```
+
+### 4.3.2 The model
+
+```{r}
+dens(d2$height)
+```
+
+Likelihood:
+$$ h_{i} \sim \text{Normal}(\mu, \sigma)$$
+Priors:
+$$ \mu \sim \text{Normal}(178, 20) $$
+$$ \sigma \sim \text{Uniform}(0, 50) $$
+
+```{r 4.12}
+# Plot mu prior
+curve(dnorm(x, 178, 20), from=100, to=250)
+```
+
+```{r 4.13}
+# Plot sigma prior
+curve(dunif(x, 0, 50), from=-10, to=60)
+```
+
+```{r 4.14}
+# Conduct prior predictive simulations to see what priors imply
+sample_mu <- rnorm(1e4, 178, 20) # Simulate 1000 'observations' from mu prior
+sample_sigma <- runif(1e4, 0, 50) # Simulate 1000 'observations' from sigma prior
+prior_h <- rnorm(1e4, sample_mu, sample_sigma) # Simulate height using simulated values from priors
+dens(prior_h)
+```
+
+
+```{r 4.15}
+# Use a larger sigma to compare prior predictive distributions
+sample_mu <- rnorm(1e4, 178, 100)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+# Notice that it assigns plausibility to heights less than 0 and greater than 400
+```
+
+### 4.3.3 Grid approximation of teh posterior distribution
+
+```{r 4.16}
+# Approximate posterior distribution for height given data using grid approximation
+mu.list <- seq(from=150, to=160, length.out=200)
+sigma.list <- seq(from=7, to=9, length.out=200)
+post <- expand.grid(mu=mu.list, sigma=sigma.list) # Get all combinations of mu and sigma
+post$LL <- sapply(1:nrow(post), function(i) sum(dnorm(d2$height, post$mu[i], post$sigma[i], log=TRUE))) # calculate likelihood across all values
+post$prod <- post$LL + dnorm(post$mu, 178, 20, TRUE) + dunif(post$sigma, 0, 50, TRUE) # multiply likelihood and prior
+post$prob <- exp(post$prod - max(post$prod)) # Calculate relative posterior probabilities (to avoid rounding to zero)
+```
+
+```{r 4.17}
+# Create contour plot of posterior
+contour_xyz(post$mu, post$sigma, post$prob)
+```
+
+
+```{r 4.18}
+# plot simple heat map of posterior
+image_xyz(post$mu, post$sigma, post$prob)
+```
+
+### 4.3.4 Sampling from the posterior
+
+```{r 4.19}
+# sample parameter values in proportion to their posterior probabilities
+sample.rows <- sample(1:nrow(post), size=1e4, replace=TRUE, prob=post$prob)
+sample.mu <- post$mu[sample.rows]
+sample.sigma <- post$sigma[sample.rows]
+```
+
+```{r 4.20}
+# Plot posterior samples
+plot(sample.mu, sample.sigma, cex=0.5, pch=16, col=col.alpha(rangi2, 0.1))
+```
+
+```{r 4.21}
+# Get marginal posterior densities of mu and sigma
+dens(sample.mu)
+dens(sample.sigma)
+```
+
+```{r 4.22}
+# Summarize widths of densities using posterior compatibility intervals
+PI(sample.mu)
+PI(sample.sigma)
+
+```
+
+```{r 4.23}
+# Sample heights to see how a smaller number of data points affects posterior
+d3 <- sample(d2$height, size=20)
+```
+
+```{r}
+# Recalculate grid approximated posterior using d3 instead of d2
+mu.list <- seq(from=150, to=170, length.out=200)
+sigma.list <- seq(from=4, to=20, length.out=200)
+post2 <- expand.grid(mu=mu.list, sigma=sigma.list)
+post2$LL <- sapply(1:nrow(post2), function(i) sum(dnorm(d3, mean=post2$mu[i], sd=post2$sigma[i], log=TRUE)))
+post2$prod <- post2$LL + dnorm(post2$mu, 178, 20, TRUE) + dunif(post2$sigma, 0, 50, TRUE)
+post2$prob <- exp(post2$prod - max(post2$prod))
+sample2.rows <- sample(1:nrow(post2), size=1e4, replace=TRUE, prob=post2$prob)
+sample2.mu <- post2$mu[sample2.rows]
+sample2.sigma <- post2$sigma[sample2.rows]
+plot(sample2.mu, sample2.sigma, cex=0.5, col=col.alpha(rangi2, 0.1), xlab='mu', ylab='sigma', pch=16)
+```
+
+```{r}
+# Examine marginal posterior density for sigma, averaging over mu
+dens(sample2.sigma, norm.comp=TRUE)
+```
+
+### 4.3.5 Finding the posterior distribution with quap
+
+```{r 4.26}
+# Re-initialize data
+library(rethinking)
+data("Howell1")
+d <- Howell1
+d2 <- d[d$age >= 18, ]
+```
+
+```{r 4.27}
+# Put model description into an `alist`
+flist <- alist(
+  height ~ dnorm(mu, sigma),
+  mu ~ dnorm(178, 20),
+  sigma ~ dunif(0, 50)
+)
+```
+
+```{r 4.28}
+# Fit model to data using `quap`
+
+m4.1 <- quap(flist, data=d2)
+```
+
+```{r 4.29}
+# Evaluate the posterior using `precis`
+precis(m4.1)
+```
+
+```{r 4.30}
+# Give a specified starting point for `quap`
+start <- list(
+  mu=mean(d2$height),
+  sigma=sd(d2$height)
+)
+m4.1 <- quap(flist, data=d2, start=start)
+precis(m4.1)
+```
+
+
+```{r 4.31}
+# Use a more "informative" prior and see how it affects posterior
+m4.2 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu ~ dnorm(178, 0.1), # Narrow sd for mean height
+    sigma ~ dunif(0, 50)
+  ), data=d2
+)
+precis(m4.2)
+
+# Notice that the posterior estimate for mu is close to the prior value
+# Causing the sigma posterior to become much wider
+```
+
+### 4.3.6 Sampling from a quap
+
+```{r 4.32}
+# Examine the variance-covariance matrix for the posterior
+vcov(m4.1)
+```
+
+```{r 4.33}
+# Decomposition of variance-covariance matrix into vectors of individual variances
+# and correlation between parameters
+diag(vcov(m4.1))
+cov2cor(vcov(m4.1))
+```
+
+```{r 4.34}
+# Sample the posterior (sampling a multivariate Gaussian distribution)
+post <- extract.samples(m4.1, n=1e4)
+head(post)
+```
+
+
+```{r 4.35}
+precis(post)
+```
+
+```{r 4.36}
+# extract.samples under the hood
+library(MASS)
+post <- mvrnorm(n=1e4, mu=coef(m4.1), Sigma=vcov(m4.1))
+```
+
+## 4.4 Linear Prediction
+
+```{r 4.37}
+# Before creating a predictive model, plot height and weight against each other
+data("Howell1"); d <- Howell1; d2 <- d[d$age >= 18,]
+plot(d2$height ~ d2$weight)
+```
+
+### 4.4.1 The linear model strategy
+
+$$ h_{i} \sim \text{Normal}(\mu_{i},\sigma) $$
+$$ \mu_{i} = \alpha + \beta(x_{i}-\bar{x}) $$
+$$ \alpha \sim \text{Normal}(178, 20) $$
+$$ \beta \sim \text{Normal}(0, 10) $$
+$$ \sigma \sim \text{Uniform}(0,50) $$
+
+```{r 4.38}
+# Simulate prior predictive distribution
+set.seed(2971)
+N <- 100 # Get 100 alpha and beta parameters
+a <- rnorm(N, 178, 20)
+b <- rnorm(N, 0, 10)
+```
+
+```{r 4.39}
+# Plot lines
+plot(NULL, xlim=range(d2$weight), ylim=c(-100,400),
+     xlab='weight', ylab='height')
+abline(h=0, lty=2)
+abline(h=272, lty=1, lwd=0.5)
+mtext("b ~ dnorm(0,10")
+xbar <- mean(d2$weight)
+for (i in 1:N) curve(a[i] + b[i]*(x-xbar),
+                     from=min(d2$weight), to=max(d2$weight), add=TRUE,
+                     col=col.alpha("black", 0.2))
+```
+
+```{r 4.41}
+# Define beta as log-normal(0,1) instead to ensure the relationship is positive
+b <- rlnorm(1e4, 0, 1)
+dens(b, xlim=c(0,5), adj=0.1)
+
+```
+
+```{r}
+# Re-do prior predictive simulation using log normal beta prior
+set.seed(2971)
+N <- 100
+a <- rnorm(N, 178, 20)
+b <- rlnorm(N, 0, 1)
+
+# Plot lines
+plot(NULL, xlim=range(d2$weight), ylim=c(-100,400),
+     xlab='weight', ylab='height')
+abline(h=0, lty=2)
+abline(h=272, lty=1, lwd=0.5)
+mtext("b ~ dnorm(0,10")
+xbar <- mean(d2$weight)
+for (i in 1:N) curve(a[i] + b[i]*(x-xbar),
+                     from=min(d2$weight), to=max(d2$weight), add=TRUE,
+                     col=col.alpha("black", 0.2))
+```
+
+### 4.4.2 Finding the posterior distribution
+
+Better model with log-normal Beta prior
+
+$$ h_{i} \sim \text{Normal}(\mu_{i},\sigma) $$
+$$ \mu_{i} = \alpha + \beta(x_{i}-\bar{x}) $$
+$$ \alpha \sim \text{Normal}(178, 20) $$
+$$ \beta \sim \text{Log-Normal}(0, 1) $$
+$$ \sigma \sim \text{Uniform}(0,50) $$
+```{r 4.42}
+# Fit linear predictive model
+
+# load in data agin, since it's a long way back
+library(rethinking)
+data("Howell1"); d <- Howell1; d2 <- d[d$age >= 18, ]
+
+# define the average weight, x-bar
+xbar <- mean(d2$weight)
+
+# fit model 
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data=d2
+)
+```
+
+```{r 4.43}
+# Another way to code the same model without the log-normal distribution
+m4.3b <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + exp(log_b)*(weight - xbar),
+    a ~ dnorm(178, 20),
+    log_b ~ dnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data = d2
+)
+```
+
+### 4.4.3 Interpreting the posterior distribution
+
+#### 4.4.3.1 Tables of marginal distributions
+
+```{r 4.44}
+# Get marginal posterior distribution information in table form
+precis(m4.3)
+```
+
+```{r 4.45}
+# Get variance-covariance table of parameters
+round(vcov(m4.3), 3)
+```
+
+```{r}
+pairs(m4.3)
+```
+
+#### 4.4.3.2 Plotting posterior inference against the data
+
+```{r 4.46}
+# Plot the line using the mean values of the parameter and compare against raw data
+plot (height ~ weight, data=d2, col=rangi2)
+post <- extract.samples(m4.3)
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve(a_map + b_map*(x-xbar), add=TRUE)
+```
+
+#### 4.4.3.3 Adding uncertainty around the mean
+
+```{r 4.47}
+# Posterior distribution contains lines at all values of alpha and beta
+post <- extract.samples(m4.3)
+post[1:5,]
+```
+
+```{r 4.48}
+# Refit the model to only 10 individuals to see how that affects variance in lines
+N <- 10
+dN <- d2[1:N, ]
+mN <- quap(
+    alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data = dN
+)
+```
+
+
+```{r 4.49}
+# Plot 20 lines from the posterior to look at uncertainty
+# extract 20 samples form the posterior
+post <- extract.samples(mN, n=20)
+
+# display raw data and sample size
+plot(dN$weight, dN$height,
+     xlim=range(d2$weight), ylim=range(d2$height),
+     col=rangi2, xlab="weight", ylab="height")
+mtext(concat("N = ", N))
+
+# Plot the lines, with transparency
+for (i in 1:20) {
+  curve(post$a[i] + post$b[i]*(x-mean(dN$weight)),
+        col=col.alpha("black", 0.3), add=TRUE)
+}
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+for(n in c(10, 50, 150, 352)) {
+  dN <- d2[1:n, ]
+  mN <- quap(
+    alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data = dN
+  )
+  
+  # Plot 20 lines from the posterior to look at uncertainty
+  # extract 20 samples form the posterior
+  post <- extract.samples(mN, n=20)
+  
+  # display raw data and sample size
+  plot(dN$weight, dN$height,
+       xlim=range(d2$weight), ylim=range(d2$height),
+       col=rangi2, xlab="weight", ylab="height")
+  mtext(concat("N = ", N))
+  
+  # Plot the lines, with transparency
+  for (i in 1:20) {
+    curve(post$a[i] + post$b[i]*(x-mean(dN$weight)),
+          col=col.alpha("black", 0.3), add=TRUE)
+  }
+}
+```
+
+#### 4.4.3.4 Plotting regression intevals and contours
+
+```{r 4.50} 
+# Get 10000 values of height for an individual who weighs 50 kilograms
+post <- extract.samples(m4.3)
+mu_at_50 <- post$a + post$b * (50 - xbar)
+```
+
+```{r 4.51}
+# Plot density of samples at 50 
+dens(mu_at_50, col=rangi2, lwd=2, xlab="mu|weight=50")
+```
+
+```{r 4.52}
+# Get 89% compatibility interval
+PI(mu_at_50, prob=0.89)
+```
+
+```{r 4.53}
+# Get posterior distribution of mu for every case (individual) in the dataset
+mu <- link(m4.3)
+str(mu)
+```
+```{r 4.54}
+# Get posterior distributions of mu for every unique weight value
+
+# define sequence of weights to compute predictions for
+# these values will be on the horizontal axis
+weight.seq <- seq(from=25, to=70, by=1)
+
+# use link to compute mu
+# for each sample from posterior
+# and for each weight in weight.seq
+mu <- link(m4.3, data=data.frame(weight=weight.seq))
+str(mu)
+```
+ 
+```{r 4.55}
+# Plot distribution of mu values at each weight
+
+plot(height ~ weight, d2, type='n')
+
+# loop over samples and plot each mu value
+for(i in 1:100) {points(weight.seq, mu[i,], pch=16, col=col.alpha(rangi2,0.1))}
+
+```
+
+```{r 4.56}
+# summarize the distribution of mu
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+data.frame(weight = weight.seq, mu.mean, t(mu.PI))
+```
+
+```{r}
+# plot raw data
+# fading out points to make line and interval more visible
+plot(height~weight, data=d2, col=col.alpha(rangi2,0.5))
+
+# Plot the MAP line, aka the mean mu for each weight
+lines(weight.seq, mu.mean)
+
+# plot a shaded region for 89% PI
+shade(mu.PI, weight.seq)
+```
+
+```{r 4.58}
+# `link` function under the hood
+post <- extract.samples(m4.3)
+mu.link <- function(weight) post$a + post$b * (weight-xbar)
+weight.seq <- seq(from=25, to=70, by=1)
+mu <- sapply(weight.seq, mu.link)
+mu.mean <- apply(mu, 2, mean)
+mu.CI <- apply(mu, 2, PI, prob=0.89)
+```
+
+#### 4.4.3.5 Prediction intervals
+
+```{r 4.59}
+# Simulate actual heights instead of mean heights embodying the uncertainty in the 
+# posterior as well as teh uncertainty in the Gaussian distribution of heights
+# using `sim`
+
+sim.height <- sim(m4.3, data=list(weight=weight.seq))
+str(sim.height)
+```
+
+```{r 4.60}
+# summarize simulated heights
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+```
+
+```{r}
+# plot everything together
+# plot raw data
+plot(height ~ weight, data=d2, col=col.alpha(rangi2, 0.5))
+
+# plot the MAP mu estimates
+lines(weight.seq, mu.mean)
+
+# draw HPDI region for line
+mu.HPDI <- apply(mu, 2, HPDI)
+shade(mu.HPDI, weight.seq)
+
+# draw PI region for simulated weights
+shade(height.PI, weight.seq)
+```
+
+```{r}
+# Smooth the edges of the simulated heights by taking more samples
+sim.height <- sim(m4.3, data=list(weight=weight.seq), n=1e4)
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+```
+
+```{r}
+# `sim` under the hood
+post <- extract.samples(m4.3)
+weight.seq <- 25:70
+sim.height <- sapply(weight.seq, function(weight)
+  rnorm(
+    n=nrow(post),
+    mean=post$a + post$b*(weight-xbar),
+    sd=post$sigma
+  ))
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+```
+
+## 4.5 Curves from lines
+
+### 4.5.1 Polynomial regression
+
+```{r 4.64}
+# load in full dataset
+library(rethinking)
+data("Howell1")
+d <- Howell1
+plot(height~weight, data=d)
+```
+
+Quadratic model:
+
+$$ h_{i} \sim \text{Normal}(\mu_{i}, \sigma) $$
+$$ \mu_{i} = \alpha + \beta_{i}x_{i} + \beta_{2}x^2_{i} $$
+$$ \alpha \sim \text{Normal}(178, 20) $$
+$$ \beta_{1} \sim \text{Log-Normal}(0, 1) $$
+$$ \beta_{2} \sim \text{Normal}(0, 1) $$
+$$ \sigma \sim \text{Uniform}(0,50) $$
+
+```{r 4.65}
+# Standardize weight variables and fit a polynomial model
+d$weight_s <- (d$weight - mean(d$weight))/sd(d$weight)
+d$weight_s2 <- d$weight_s^2
+m4.5 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1*weight_s + b2*weight_s2,
+    a ~ dnorm(178, 20),
+    b1 ~ dlnorm(0, 1),
+    b2 ~ dnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data=d
+)
+
+```
+
+```{r 4.66}
+# look at table of coefficients
+precis(m4.5)
+
+```
+
+```{r 4.67}
+# Get data for plotting the posteriors
+weight.seq <- seq(from=-2.2, to=2, length.out=30)
+pred_dat <- list(weight_s=weight.seq, weight_s2=weight.seq^2)
+mu <- link(m4.5, data=pred_dat)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+sim.height <- sim(m4.5, data=pred_dat)
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+```
+
+```{r 4.68}
+# plot the posterior
+plot(height ~ weight_s, d, col=col.alpha(rangi2,0.5))
+lines(weight.seq, mu.mean)
+shade(mu.PI, weight.seq)
+shade(height.PI, weight.seq)
+```
+
+Cubic model:
+
+$$ h_{i} \sim \text{Normal}(\mu_{i}, \sigma) $$
+$$ \mu_{i} = \alpha + \beta_{i}x_{i} + \beta_{2}x^2_{i} + \beta_{3}x_{i}^3$$
+$$ \alpha \sim \text{Normal}(178, 20) $$
+$$ \beta_{1} \sim \text{Log-Normal}(0, 1) $$
+$$ \beta_{2} \sim \text{Normal}(0, 10) $$
+$$ \beta_{3} \sim \text{Normal}(0, 10) $$
+$$ \sigma \sim \text{Uniform}(0,50) $$
+
+```{r 4.69}
+# Fit Cubic model
+
+d$weight_s3 <- d$weight_s^3
+
+m4.6 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1*weight_s + b2*weight_s2 + b3*weight_s3,
+    a ~ dnorm(178, 20),
+    b1 ~ dlnorm(0, 1),
+    b2 ~ dnorm(0, 10),
+    b3 ~ dnorm(0, 10),
+    sigma ~ dunif(0, 50)
+  ),
+  data=d
+)
+```
+
+
+```{r 4.70-4.71}
+# plot data on original scale
+plot(height ~ weight_s, d, col=col.alpha(rangi2,0.5), xaxt="n")
+at <- c(-2, -1, 0, 1, 2)
+labels <- at*sd(d$weight) + mean(d$weight)
+axis(side=1, at=at, labels=round(labels,1))
+```
+
+### 4.5.2 Splines
+
+```{r 4.72}
+# Load in cherry blossom data
+library(rethinking)
+data("cherry_blossoms")
+d <- cherry_blossoms
+precis(d)
+```
+
+```{r}
+plot(doy~year, data=d)
+```
+
+```{r 4.73}
+# Create knots for B-splines
+d2 <- d[complete.cases(d$doy), ] # complete cases on doy
+num_knots <- 15
+knot_list <- quantile(d2$year, probs=seq(0, 1, length.out=num_knots))
+```
+
+```{r 4.74}
+# Create basis functions for cubic splines
+library(splines)
+B <- bs(d2$year,
+        knots=knot_list[-c(1, num_knots)],
+        degree=3, intercept=TRUE)
+```
+
+
+```{r 4.75}
+# Plot basis functions
+plot(NULL, xlim=range(d2$year), ylim=c(0,1), xlab="year", ylab="basis")
+for (i in 1:ncol(B)) lines(d2$year, B[,i])
+```
+
+B-Spline model:
+
+$$ D_{i} \sim \text{Normal}(\mu_{i}, \sigma) $$
+$$ \mu_{i} = \alpha + \sum_{k=1}^{K} w_{k}B_{k,i} $$
+
+$$ \alpha \sim \text{Normal}(100, 10) $$
+$$ w_{j} \sim \text{Normal}(0, 10) $$
+$$ \sigma \sim \text{Exponential}(1) $$
+
+```{r 4.76}
+# Define and fit B-spline model
+m4.7 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- a + B %*% w,
+    a ~ dnorm(100, 10),
+    w ~ dnorm(0, 10),
+    sigma ~ dexp(1)
+  ),
+  data=list( D=d2$doy, B=B),
+  start=list(w=rep(0, ncol(B)))
+)
+```
+
+```{r}
+precis(m4.7, depth=2)
+```
+
+```{r 4.77}
+# Get weighted basis functions
+post <- extract.samples(m4.7)
+w <- apply(post$w, 2, mean)
+plot(NULL, xlim=range(d2$year), ylim=c(-6,6),
+     xlab="year", ylab="basis * weight")
+for(i in 1:ncol(B)) lines(d2$year, w[i]*B[,i])
+```
+
+```{r 4.78}
+# Plot 97% posterior interval for mu at each year
+mu <- link(m4.7)
+mu_PI <- apply(mu,2,PI,0.97)
+plot(d2$year, d2$doy, col=col.alpha(rangi2,0.3), pch=16)
+shade(mu_PI, d2$year, col=col.alpha("black", 0.5))
+```
+
+
+
+
+
+
+
+
+

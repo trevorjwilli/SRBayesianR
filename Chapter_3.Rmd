@@ -1,0 +1,167 @@
+---
+title: "Statistical Rethinking Chapter 3: Sampling the Imaginary"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+
+library(rethinking)
+
+knitr::opts_knit$set(root.dir = "~/dev/SRBayesianR/")
+
+
+```
+
+### Introduction
+
+Vampire example:
+
+$$ Pr(\text{vampire|positive}) = \frac{Pr(\text{positive|vampire})Pr(\text{vampire})}{Pr(\text{positive|vampire})+Pr(\text{positive|mortal})(1-Pr(\text{vampire}))}$$
+$$ =\frac{0.95*0.001}{(0.95*0.001) + (0.01*(1-0.001))}$$
+Code to calculate:
+
+```{r}
+Pr_positive_vampire <- 0.95
+Pr_positive_mortal <- 0.01
+Pr_vampire <- 0.001
+Pr_Positive <- Pr_positive_vampire*Pr_vampire + Pr_positive_mortal*(1-Pr_vampire)
+( Pr_vampire_positive <- Pr_positive_vampire*Pr_vampire/Pr_Positive)
+```
+
+Shows that when the condition of interest is very rare, having a test that finds the true cases is no guarantee that the positive result carries much information since most are false positives
+
+Can use counts to display the same information:
+
+ 1. In a population of 10000 people, 100 are vampires
+ 2. of the 100 who are vampires, 95 will test positive for vampirism
+ 3. Of the 99,900 mortals, 999 will test positive for vampirism
+ 
+$$ Pr(\text{vampire|positive})=\frac{95}{1094} = 0.087 $$
+This is called the *frequency format* or *natural frequencies*. 
+
+Thinking Bayesian -> we can exploit this format by taking probability distributions and sampling from them to produce counts
+
+* Can also draw samples from the posterior distribution -> sampled events are parameter values
+ 
+### 3.1 Sampling from a grid-approximate posterior
+
+Before we sample from the posterior, we need to make one. Using the Globe tossing model and grid approximation let's create the posterior:
+
+```{r}
+p_grid <- seq(from=0, to=1, length.out=1000)
+prob_p <- rep(1, 1000) # prior
+prob_data <- dbinom(6, size=9, prob=p_grid)
+posterior <- prob_data * prob_p
+posterior <- posterior/sum(posterior)
+
+```
+
+
+Now we want to draw 10000 samples from this posterior
+* Imagine the posterior is a bucket full of parameters values, with each value existing in proportion to the posterior probability in `posterior`
+* We can sample from this bucket to approximate the posterior
+
+```{r}
+samples <- sample(p_grid, prob=posterior, size=1e4, replace=TRUE)
+
+```
+
+Lets plot the samples and the *density estimate* using the `dens()` function from `rethinking`
+
+```{r}
+par(mfrow=c(1,2))
+plot(samples, col=rgb(0, 0, 1, alpha = 0.5), pch=16, ylim=c(0,1))
+dens(samples, col='blue')
+```
+
+### 3.2 Sampling to summarize
+
+How do you summarize the posterior? Common questions include:
+
+1. Questions about intervals of *defined boundaries*
+  * How much posterior probability lies below some parameter value?
+  * How much posterior probability lies between two parameters values?
+
+2. Questions about intervals of *defined probability mass*
+  * Which parameter value marks the lower 5% of the posterior probability?
+  * Which range of parameter values contains 90% of the posterior probability?
+
+3. Questions about *point estimates*
+  * Which parameter value has highest posterior probability?
+
+#### 3.2.1 Intervals of defined boundaries
+
+What is the posterior probability that the proportion of water is less than 0.5
+
+```{r}
+# Add up posterior probability where p < 0.5
+sum(posterior[p_grid<0.5])
+```
+
+This is the way to do it for single parameters with grid approximation -> trickier when more parameters present
+
+The same calculation using samples from the posterior can be computed as the proportion (or frequency) of samples that match your criteria:
+
+```{r}
+sum(samples < 0.5)/length(samples)
+```
+
+This is generalizable to instances with more than one parameter as well. It can also be used to find how much of the posterior probability lies between 0.5 and 0.75:
+
+```{r}
+sum(samples > 0.5 & samples < 0.75)/length(samples)
+```
+
+#### 3.2.2 Intervals of defined mass
+
+Intervals of defined mass - or *confidence intervals* or *credibility intervals* or *compatibility intervals* - are ranges of parameter values compatible with the model and data.
+
+ * Report two parameter values that contain between them a specified amount of posterior probability, which is a probability mass.
+ 
+To find the lower 80% posterior probability use `quantile()`
+
+```{r}
+quantile(samples, 0.8)
+```
+
+To find the middle 80% find the parameter values at the 10th and 90th percentiles
+
+```{r}
+quantile( samples, c(0.1, 0.9))
+```
+
+These types of intervals, where equal probability mass is assigned to each tail, can also be called *percentile intervals (PI)*. However, it isn't perfect, consider the following posterior distribution:
+
+```{r}
+p_grid <- seq(from=0, to=1, length.out=1000)
+prior <- rep(1,1000)
+likelihood <- dbinom(3, size=3, prob=p_grid)
+posterior <- likelihood*prior
+posterior <- posterior / sum(posterior)
+samples <- sample(p_grid, size=1e4, replace=TRUE, prob=posterior)
+
+par(mfrow=c(1,2))
+
+plot(samples, col=rgb(0, 0, 1, alpha = 0.5), pch=16, ylim=c(0,1))
+dens(samples, col='blue')
+```
+
+
+You can use `PI()` from `rethinking` to calculate middle intervals:
+
+```{r}
+PI(samples, prob=0.5)
+```
+
+This puts 25% of the probability mass above and below the interval, but excludes the most probable parameter values near p=1, misleading information on the shape of the distribution.
+
+Instead you can use the *highest posterior density interval* (HPDI) - the narrowest interval containing the specified probability mass. You can calculate it using `HPDI()` from `rethinking`
+
+```{r}
+HPDI(samples, prob=0.5)
+```
+
+Disadvantages of HPDI:
+ 1. More computationally intensive
+ 2. Suffers from greater simulation variance
+ 3. Harder to understand
