@@ -1,0 +1,177 @@
+---
+title: "Chapter_9_Markov_Chain_Monte_Carlo"
+author: "Trevor Williams"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 9.1 Good King Markov and his island kingdom
+
+Simulating King Markov's journey around the islands
+
+```{r 9.1}
+num_weeks <- 1e5
+positions <- rep(0, num_weeks)
+current <- 10
+for (i in 1:num_weeks) {
+  ## Record current position
+  positions[i] <- current
+  ## flip coint to generate proposal
+  proposal <- current + sample(c(-1, 1), size=1)
+  ## now make sure he loops around the archipelago
+  if (proposal < 1) proposal <- 10
+  if (proposal > 10) proposal <- 1
+  ## move ?
+  prob_move <- proposal/current
+  current <- ifelse(runif(1) < prob_move, proposal, current)
+}
+```
+
+Plot king's position for first 100 weeks
+
+```{r 9.2}
+plot(1:100, positions[1:100], xlab="week", ylab="position", ylim=c(1, 10))
+```
+
+Plot proportion of time spent on each island
+
+```{r 9.3}
+plot(table(positions), xlab="island", ylab="number of weeks")
+```
+
+## 9.2 Metropolis algorithms
+
+Above described a special case of the **Metropolis Algorithm**
+
+ - the "islands" are parameter values, and they need not be discrete, but can instead take on a continuous range of values 
+ - The "population sizes" are teh posterior probabilities at each parameter value
+ - the "weeks" are samples taken from the joint posterior of the parameters in the model
+ 
+
+### 9.2.1 Gibbs sampling
+
+Metropolis algorithm requires symmetric proposal distributions. Other algorithms (like Metropolis-Hastings) allows asymmetric proposals. This allows a more efficient exploration of the posterior distribution.
+
+**Gibbs-Sampling** is a technique that is much more efficient by using *adaptive proposals* in which the distribution of proposed parameter values adjusts itself intelligently, depending upon the parameter values at the moment. Does so using *conjugate pairs*. Software like BUGS and JAGS use Gibbs sampling
+
+### 9.2.2 High-dimensional problems
+
+Any Markov chain approach that samples individual parameters in individual steps is going to get stuck, once the number of parameters grows suffficiently large (called **Concentration of Measure**). This means that the combination of parameter values that maximizes posterior probability, the mode, is not actually in a region of parameter values that are highly plausible.
+
+Plot example of 10 dimensions 
+
+```{r 9.4}
+library(rethinking)
+
+D <- 10
+T <- 1e3
+Y <- rmvnorm(T, rep(0,D),diag(D))
+rad_dist <- function(Y) sqrt(sum(Y^2))
+Rd <- sapply (1:T, function(i) rad_dist(Y[i,]))
+dens(Rd)
+```
+
+In this example the mode is at 0, so we are sampling pretty far from it. This is why we need MCMC algorithms that focus on the entire posterior at once, instead of one or a few dimensions at a time like Metropolis and Gibbs samplers. Otherwise, you get stuck in a narrow, highly curving region of parameter space.
+
+## 9.3 Hamiltonian Monte Carlo
+
+The Metropolis algorithm and Gibbs sampling are highly random procedures - they try out new parameter values (proposals) and see how good they are, compared to the current values.
+
+**Hamiltonian Monte Carlo** is more computationally expensive but also much more efficient and will be the algorithm we use on and off for the rest of the book.
+
+### 9.3.1 Another parable
+
+Hamilton's approach only works with continuous data and greatly reduces the autocorrelation between locations.
+
+### 9.3.2 Particles in Space
+
+HMC really does run a physics simulation, pretending the vector of parameters gives the position of a little frictionless particle. The log-posterior provides a surface for the particle to glide across
+
+### 9.3.3. Limitations
+
+HMC requires continuous parameters. Need to change how you code some certain tecnhiques like imputation of discrete missing data.
+
+## 9.4 Easy HMC: ulam
+
+To use HMC, we are going to start using `ulam` instead of `quap`. `ulam` requires that you preprocess any variable transformations and construct a clean data list with only the variables you will use.
+
+Let's work with the terrain ruggedness example from Chapter 8:
+
+```{r 9.11}
+
+library(rethinking)
+data(rugged)
+d <- rugged
+d$log_gdp <- log(d$rgdppc_2000)
+dd <- d[ complete.cases(d$rgdppc_2000), ]
+dd$log_gdp_std <- dd$log_gdp / mean(dd$log_gdp)
+dd$rugged_std <- dd$rugged / max(dd$rugged)
+dd$cid <- ifelse(dd$cont_africa==1, 1, 2)
+
+```
+
+Reminder of how to model interaction model with quap
+
+```{r 9.12}
+
+m8.3 <- quap(
+  alist(
+    log_gdp_std ~ dnorm(mu, sigma),
+    mu <- a[cid] + b[cid] * (rugged_std - 0.215),
+    a[cid] ~ dnorm(1, 0.1),
+    b[cid] ~ dnorm(0, 0.3),
+    sigma ~ dexp(1)
+  ), data = dd
+)
+precis(m8.3, depth=2)
+
+```
+
+### 9.4.1 Preparation
+
+We need to:
+ 1. Preprocess all variable transformations
+ 2. Trim down the data frame so that it only contains the variables of interest
+ 
+```{r 9.13}
+
+dat_slim <- list(
+  log_gdp_std = dd$log_gdp_std,
+  rugged_std = dd$rugged_std,
+  cid = as.integer(dd$cid)
+)
+
+str(dat_slim)
+
+```
+ 
+### 9.4.2 Sampling from the posterior
+
+Now you can get samples from the posterior distribution with this code:
+
+```{r 9.14}
+
+m9.1 <- ulam(
+  alist(
+    log_gdp_std ~ dnorm(mu, sigma),
+    mu <- a[cid] + b[cid]*(rugged_std - 0.215),
+    a[cid] ~ dnorm(1, 0.1),
+    b[cid] ~ dnorm(0, 0.3),
+    sigma ~ dexp(1)
+  ), data = dat_slim, chains=1
+)
+
+```
+
+
+
+
+
+
+
+
+
