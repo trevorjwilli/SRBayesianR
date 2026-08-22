@@ -167,11 +167,29 @@ m9.1 <- ulam(
 
 ```
 
+```{r}
+precis(m9.1, depth=2)
+```
 
+```{r}
+traceplot(m9.1)
+```
 
+```{r}
+m9.1 <- ulam(
+  alist(
+    log_gdp_std ~ dnorm(mu, sigma),
+    mu <- a[cid] + b[cid]*(rugged_std - 0.215),
+    a[cid] ~ dnorm(1, 0.1),
+    b[cid] ~ dnorm(0, 0.3),
+    sigma ~ dexp(1)
+  ), data = dat_slim, chains=4, cores=4
+)
+```
+```{r}
+traceplot(m9.1)
+```
 
-
-
-
-
-
+```{r}
+trankplot(m9.1)
+```
