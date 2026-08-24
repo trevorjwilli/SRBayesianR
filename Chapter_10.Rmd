@@ -1,0 +1,55 @@
+---
+title: "Chapter_10"
+author: "Trevor Williams"
+date: "2026-08-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 10.1 Maximum Entropy
+
+We seek a measure of uncertainty that:
+ - is continuous
+ - should increase as the number of possible events increases
+ - should be additive
+ 
+What we get is *information entropy*:
+
+$$ H(p) = - \sum{p_ilog(p_i)} $$
+
+Maximum entropy principle:
+
+The distribution that can happen the most ways is also the distribtution with the biggest information entropy. The distribution with the biggest entropy is the most conservative distribution that obeys its constraints.
+
+Pebble and bucket example
+
+```{r 10.1-10.3}
+p <- list()
+p$A <- c(0,0,10,0,0)
+p$B <- c(0,1,8,1,0)
+p$C <- c(0,2,6,2,0)
+p$D <- c(1,2,4,2,1)
+p$E <- c(2,2,2,2,2)
+
+p_norm <- lapply(p, function(q) q/sum(q))
+
+# Use L'Hopitals rule to compute information entropy
+
+(H <- sapply(p_norm, function(q) -sum(ifelse(q==0, 0, q*log(q)))))
+
+```
+
+
+
+
+```{r 10.4}
+ways <- c(1, 90, 1260, 37800, 113400)
+logwayspp <- log(ways)/10
+
+plot(logwayspp, H)
+```
+
+Information entropy is a way of counting how many unique arrangements correspond to a distribution. Which is useful because teh distribution that can happen the greatest number of ways is the most plausible distribution - called **Maximum Entropy Distribution**

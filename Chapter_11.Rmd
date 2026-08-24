@@ -1,0 +1,313 @@
+---
+title: "Chapter 11: God Spiked the Integers"
+author: "Trevor Williams"
+date: "2026-08-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 11.1 Binomial regression
+
+The binomial distribution is denoted:
+
+$$ y \sim \text{Binomial}(n,p) $$
+Where $y$ is a count (zero or a positive whole number), $p$ is the probability any particular "trial" is a success, and $n$ is the number of trials.
+
+Two flavors of GLM that use binomial probability functions:
+
+ 1. Logistic Regression: data are organized into single-trial cases, so outcome can only take a 0 or a 1
+ 2. Aggregated Binomial Regression: outcome can take teh value zero or any positive integer up to $n$
+ 
+
+### 11.1.1 Logistic regression: Prosocial Chimpanzees
+
+Chimpanzee prosocial example: goal is to estimate the interaction between condition (presence of absence of another animal) and option (which side is prosocial)
+
+
+```{r 11.1}
+library(rethinking)
+data(chimpanzees)
+d <- chimpanzees
+```
+We are going to model `pulled_left` as the outcome to predict, with `prosoc_left` and `condition` as predictor variables
+
+Four combinations of `prosoc_left` and `condition` we need to infer:
+
+  1. `prosoc_left` = 0 and `condition` = 0: two food items on the right and no partner
+  2. `prosoc_left` = 1 and `condition` = 0: two food items on the left and no partner
+  3. `prosoc_left` = 0 and `condition` = 1: two food items on the right and partner present
+  4. `prosoc_left` = 1 and `condition` = 1: two food items on the left and partner present
+  
+We will create an index fariable to index the combinations above:
+
+```{r 11.2}
+d$treatment <- 1 + d$prosoc_left + 2*d$condition
+```
+
+verify by using crosstab
+
+
+```{r 11.3}
+xtabs( ~ treatment + prosoc_left + condition, d)
+```
+
+Before building the model, let's consider a runt of logistic regression with just a single $\alpha$ paramter:
+
+$$ L_1 \sim \text{Binomial}(1, p_i) $$
+$$ \text{logit}(p_i) = \alpha $$
+$$ \alpha \sim \text{Normal}(0, \omega) $$
+
+Need to pick a value for $\omega$ lets start with $\omega = 10$
+
+```{r 11.4}
+
+m11.1 <- quap(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a,
+    a ~ dnorm(0, 10)
+  ), data=d
+)
+
+```
+
+Now sample from the prior
+
+```{r 11.5}
+
+set.seed(1999)
+prior <- extract.prior(m11.1, n=1e4)
+
+```
+
+
+Next we need to convert the parameter to the outcome scale using the inverse-link function
+
+```{r 11.6}
+
+p <- inv_logit(prior$a)
+dens(p, adj=0.1)
+
+```
+
+Now do the same thing for treatment effects
+
+```{r 11.7}
+
+m11.2 <- quap(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a + b[treatment],
+    a ~ dnorm(0, 1.5),
+    b[treatment] ~ dnorm(0, 10)
+  ), data=d
+)
+set.seed(1999)
+prior <- extract.prior(m11.2, n=1e4)
+p <- sapply(1:4, function(k) inv_logit(prior$a + prior$b[,k]))
+
+```
+
+and plot it 
+
+```{r 11.8}
+
+dens(abs(p[,1] - p[,2]), adj=0.1)
+
+```
+
+look at average prior distance using more informative prior
+
+```{r 11.9}
+
+m11.3 <- quap(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a + b[treatment],
+    a ~ dnorm(0, 1.5),
+    b[treatment] ~ dnorm(0, 0.5)
+  ), data=d
+)
+set.seed(1999)
+prior <- extract.prior(m11.3, n=1e4)
+p <- sapply(1:4, \(k) inv_logit(prior$a + prior$b[,k]))
+mean( abs(p[,1] - p[,2]))
+
+```
+
+Prepare data lists to run HMC
+
+```{r 11.10}
+
+# trimmed data list
+dat_list <- list(
+  pulled_left = d$pulled_left,
+  actor = d$actor,
+  treatment = as.integer(d$treatment)
+)
+
+```
+
+
+Fit the model
+
+```{r 11.11}
+
+m11.4 <- ulam(
+  alist(
+    pulled_left ~ dbinom(1, p), 
+    logit(p) <- a[actor] + b[treatment],
+    a[actor] ~ dnorm(0, 1.5),
+    b[treatment] ~ dnorm(0, 0.5)
+  ), data=dat_list, chains=4, log_lik=TRUE, cores=4
+)
+precis(m11.4, depth=2)
+
+```
+
+Look at parameters on the outcome scale
+
+```{r 11.12}
+post <- extract.samples(m11.4)
+p_left <- inv_logit(post$a)
+plot(precis(as.data.frame(p_left)), xlim=c(0, 1))
+```
+
+Now look at treatment effects
+
+```{r 11.13}
+
+labs <- c("R/N", "L/N", "R/P", "L/P")
+plot(precis(m11.4, depth=2, pars="b"), labels=labs)
+
+```
+
+calculate differences between no-partner/partner 
+
+```{r 11.14}
+
+diffs <- list(
+  db13 = post$b[,1] - post$b[,3],
+  db24 = post$b[,2] - post$b[,4]
+)
+plot(precis(diffs))
+
+```
+
+Consider posterior prediction check. First summarize the porportions of left pulls for each actor in each treatment
+
+```{r 11.15}
+
+pl <- by(d$pulled_left, list(d$actor, d$treatment), mean)
+pl[1,]
+
+```
+
+Plot raw data
+
+```{r 11.16}
+
+plot(NULL, xlim=c(1,28), ylim=c(0,1), xlab="",
+     ylab = "Proportion left lever", xaxt="n", yaxt="n")
+axis(2, at=c(0, 0.5, 1), labels = c(0, 0.5, 1))
+abline(h=0.5, lty=2)
+for (j in 1:7) abline(v=(j-1)*4+4.5, lwd=0.5)
+for (j in 1:7) text( (j-1)*4+2.5, 1.1, concat("actor ", j), xpd=TRUE)
+for (j in (1:7)[-2]) {
+  lines( (j-1)*4+c(1,3), pl[j,c(1,3)], lwd=2, col=rangi2)
+  lines( (j-1)*4+c(2,4), pl[j,c(2,4)], lwd=2, col=rangi2)
+}
+points(1:28, t(pl), pch=16, col="white", cex=1.7)
+points(1:28, t(pl), pch=c(1,1,16,16), col=rangi2, lwd=2)
+yoff <- 0.01
+text(1, pl[1,1]-yoff, "R/N", pos=1, cex=0.8)
+text(2, pl[1,2]-yoff, "L/N", pos=3, cex=0.8)
+text(3, pl[1,3]-yoff, "R/P", pos=1, cex=0.8)
+text(4, pl[1,4]-yoff, "L/P", pos=3, cex=0.8)
+mtext("observed proportions\n")
+
+```
+
+Get posterior predictions
+
+```{r 11.17}
+dat <- list(actor=rep(1:7, each=4), treatment=rep(1:4,times=7))
+p_post <- link(m11.4, data=dat)
+p_mu <- apply(p_post, 2, mean)
+p_ci <- apply(p_post, 2, PI)
+```
+
+Get index variables for interaction model
+
+```{r 11.18}
+d$side <- d$prosoc_left + 1 # right 1, left 2
+d$cond <- d$condition + 1 # no partner 1, partner 2
+```
+
+
+```{r 11.19}
+
+dat_list2 <- list(
+  pulled_left = d$pulled_left,
+  actor = d$actor,
+  side = d$side,
+  cond = d$cond
+)
+m11.5 <- ulam(
+  alist(
+    pulled_left ~ dbinom(1, p),
+    logit(p) <- a[actor] + bs[side] + bc[cond],
+    a[actor] ~ dnorm(0, 1.5),
+    bs[side] ~ dnorm(0, 0.5),
+    bc[cond] ~ dnorm(0, 0.5)
+  ), data = dat_list2, chains = 4, cores = 4, log_lik = TRUE
+)
+
+```
+
+compare two modles with PSIS
+
+```{r 11.20}
+
+compare(m11.5, m11.4, func=PSIS)
+
+```
+
+
+### 11.1.2 Relative shark and absolute deer
+
+Discussed relative vs. absolute effects. Relative effects are exponentiating the betas
+
+### 11.1.3 Aggregated binomial: Chimpanzees again, condensed
+
+Data can be condensed into counts of left pulls
+
+to calculate the number of times each chimpanzee pulled the left-hand lever, for each combination of predictor values:
+
+```{r 11.24}
+
+data(chimpanzees)
+d <- chimpanzees
+d$treatment <- 1 + d$prosoc_left + 2*d$condition
+d$side <- d$prosoc_left + 1 # right 1, left 2
+d$cond <- d$condition + 1 # no partner 1, partner 2
+d_aggregated <- aggregate(
+  d$pulled_left,
+  list(treatment=d$treatment, actor=d$actor,
+       side=d$side, cond=d$cond),
+  sum
+)
+
+colnames(d_aggregated)[5] <- "left_pulls"
+
+```
+
+Now define the model
+
+```{r}
+
+```
+
