@@ -1,0 +1,128 @@
+---
+title: "Chapter_13_Questions"
+author: "Trevor Williams"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Easy problems
+
+**13E1. Which of the following priors will produce more shrinkage in the estimates? **
+
+ a. $\alpha_{TANK} \sim \text{Normal}(0, 1)$
+ b. $\alpha_{TANK} \sim \text{Normal}(0, 2)$
+ 
+a will produce more shrinkage 
+[EDIT FROM ANSWERS] shrinkage is introduced by regularising/informative priors. (a) has a narrower distribution than (b) and is thus more informative/regularising
+
+**13E2. Rwerite the following model as a multilevel model**
+
+$$ y_{i} \sim \text{Binomial}(1, p_i) $$
+$$ logit(p_i) = \alpha_{GROUP[i]} + \beta x_i $$
+$$ \alpha_{GROUP} \sim \text{Normal}(0, 1.5) $$
+$$ \beta \sim \text{Normal}(0, 0.5) $$
+Answer:
+
+$$ y_{i} \sim \text{Binomial}(1, p_i) $$
+$$ logit(p_i) = \alpha_{GROUP[i]} + \beta x_i $$
+$$ \alpha_{GROUP} \sim \text{Normal}(\bar{\alpha}, \sigma) $$
+$$ \beta \sim \text{Normal}(0, 0.5) $$
+$$ \bar{\alpha} \sim \text{Normal}(0, 1.5) $$
+$$ \sigma \sim \text{Exponential}(1) $$
+
+**13E3. Rewrite the following model as a multilevel model**
+
+$$ y_i \sim \text{Normal}(\mu_{i}, \sigma) $$
+$$ \mu_i = \alpha_{GROUP[i]} + \beta x_i $$
+$$ \alpha_{GROUP} \sim \text{Normal}(0, 5) $$
+$$ \beta \sim \text{Normal}(0, 1) $$
+$$ \sigma \sim \text{Exponential}(1) $$
+
+Answer:
+
+$$ y_i \sim \text{Normal}(\mu_{i}, \sigma) $$
+$$ \mu_i = \alpha_{GROUP[i]} + \beta x_i $$
+$$ \alpha_{GROUP} \sim \text{Normal}(\bar{\alpha},\sigma_{\alpha}) $$
+$$ \bar{\alpha} \sim \text{Normal}(0, 2) $$
+$$ \sigma_{\alpha} \sim \text{Exponential}(1) $$
+$$ \beta \sim \text{Normal}(0, 1) $$
+$$ \sigma \sim \text{Exponential}(1) $$
+
+**13E4. Write a mathematical model formula for a Poisson regression with varying intercepts**
+
+$$ T_i \sim \text{Poisson}(\lambda_i) $$
+$$ \log(\lambda_i) = \alpha_{GROUP[i]} + \beta x_{i} $$
+$$ \alpha_{GROUP} \sim \text{Normal}(\bar{\alpha}, \sigma_{\alpha}) $$
+$$ \bar{\alpha} \sim \text{Normal}(0, 1.5) $$
+$$ \sigma_{\alpha} \sim \text{Exponential}(1) $$
+$$ \beta \sim \text{Normal}(0, 1) $$
+
+**13E5. Write a mathematical model formula for a Poisson regression with two different kinds of varying intercepts, a cross-classified model**
+
+$$ T_i \sim \text{Poisson}(\lambda_i) $$
+$$ \log(\lambda_i) = \alpha_{GROUP[i]} + \gamma_{BLOCK[i]} + \beta x_{i} $$
+
+$$ \alpha_{GROUP} \sim \text{Normal}(\bar{\alpha}, \sigma_{\alpha}) $$
+$$ \bar{\alpha} \sim \text{Normal}(0, 2) $$
+$$ \sigma_{\alpha} \sim \text{Exponential}(1) $$
+$$ \gamma_{BLOCK} \sim \text{Normal}(0, \sigma_{\gamma}) $$
+
+$$ \sigma_{\gamma} \sim \text{Exponential}(1) $$
+$$ \beta \sim \text{Normal}(0, 1) $$
+
+## Medium problems
+
+**13M1. Revisit the Reed frog survival data, data(reedfrogs) ,and add the predation and size treatment variables to the varying intercepts model. Consider models with either main effect alone, both main effects, as well as a model including both and their interaction. Instead of focusing on inferences about these two predictor variables, focus on the inferred variation across tanks. Explain why it changes as it does across models**
+
+```{r}
+library(rethinking)
+
+data(reedfrogs)
+
+d <- reedfrogs
+str(d)
+```
+
+Model 0:
+
+
+
+
+Model 1:
+
+$$ y_i \sim \text{Binomial}(N_i, p_i) $$
+$$ \text{logit}(p_i) = \alpha_{tank[i]} + \beta_{pred[i]} $$
+$$ \alpha_{tank[i]} \sim \text{Normal}(\bar{\alpha}, \sigma_{\alpha}) $$
+$$ \bar{\alpha} \sim \text{Normal}(0, 1.5) $$
+$$ \sigma_{\alpha} \sim \text{Exponential}(1) $$
+$$ \beta_{k} \sim \text{Normal}(0, 1) $$
+```{r}
+dat <- list(
+  S = d$surv,
+  N = d$density,
+  pred = as.integer(d$pred),
+  size_ = as.integer(d$size),
+  tank = 1:nrow(d)
+)
+
+#approximate posterior
+
+m13m1_1 <- ulam(
+  alist(
+    S ~ dbinom(N, p),
+    logit(p) <- a[tank] + b[pred],
+    a[tank] ~ dnorm(a_bar, sigma_a),
+    a_bar ~ dnorm(0, 1.5),
+    sigma_a ~ dexp(1),
+    b[pred] ~ dnorm(0, 1)
+  ), data=dat_13m1_1, chains=4, cores=4, log_lik=TRUE
+)
+
+precis(m13m1_1, depth=2)
+
+```
+
